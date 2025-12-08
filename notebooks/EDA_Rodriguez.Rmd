@@ -1,0 +1,656 @@
+---
+title: "Dane od Rodrigueza EDA"
+output: html_notebook
+---
+
+
+```{r}
+library(tidyverse)
+library(GGally)
+library( naniar)
+library(dplyr)
+library(plotly)
+library(tsibble)
+library(ggplot2)
+library(fabletools)
+library(feasts)
+library(fable)
+```
+
+
+```{r}
+dataset <- read.csv("./data/Rodrigues_dane/flights.csv", sep = ",")
+print(dataset)
+
+```
+
+
+
+```{r}
+comma_to_numeric <- function(x) {
+  replace_na(x, 0)
+  x_clean <- str_replace_all(x, ",", ".")
+  x_clean <- as.numeric(x_clean)
+  x_clean[is.na(x_clean)] <- 0
+  x_clean
+}
+
+flights_tsible <- dataset %>% 
+  group_by(flight) %>%
+  mutate(
+    flight_frame = row_number(),
+    lat_rad = position_y * pi / 180,
+    lat_m = (position_y - first(position_y)) * 111111,
+    lon_m = (position_x - first(position_x)) * 111111 * cos(lat_rad),
+    alt = (position_z - first(position_z)),
+    altitude = comma_to_numeric(altitude)
+  ) %>%
+  ungroup() %>%
+  as_tsibble(index = "time", key = c("flight"))
+
+flights_tsible$speed_h_ms <- sqrt(flights_tsible$velocity_x^2 + flights_tsible$velocity_y^2)
+
+heading_angle_deg <- (atan2(flights_tsible$velocity_y, flights_tsible$velocity_x) * 180 / pi) %% 360
+flights_tsible$wind_effect <- flights_tsible$wind_speed * cos((flights_tsible$wind_angle - heading_angle_deg) * pi / 180)
+```
+---
+State of charge estimation and position difference estimation
+---
+
+```{r}
+flights_tsible <- flights_tsible |>
+  group_by_key() |> 
+  arrange(time) |>
+  mutate(
+    dt_sec = as.numeric(time - lag(time, default = first(time))),
+    mAh_used = (dt_sec/3600) * (battery_current*1000),
+    cum_mAh_used = cumsum(mAh_used),
+    total_mAh_used = max(cum_mAh_used),
+    soc_coulomb_mAh = total_mAh_used - cum_mAh_used,
+    soc_coulomb_normalized = 100 *replace_na((1 - cum_mAh_used / total_mAh_used), 0.0)
+  ) |>
+  ungroup()
+
+flights_tsible
+```
+
+```{r}
+flights_tsible <- flights_tsible |>
+  group_by_key() |> 
+  arrange(time) |>
+  mutate(
+    d_position_x = as.numeric(lat_m - lag(lat_m, default = first(lat_m))),
+    d_position_y = as.numeric(lon_m - lag(lon_m, default = first(lon_m))),
+    d_position_z = as.numeric(position_z - lag(position_z, default = first(position_z))),
+    d_position_h = sqrt(d_position_x^2 + d_position_y^2),
+    d_position_total = sqrt(d_position_h^2 + d_position_z^2)
+  ) |>
+  ungroup()
+
+flights_tsible
+```
+
+
+```{r}
+chunk_size <- 25
+n_chunks <- ceiling(ncol(flights_tsible) / chunk_size)
+
+for (step in 1:n_chunks) {
+  from <- ((step - 1) * chunk_size) + 1
+  to <- min(step * chunk_size, ncol(flights_tsible))
+  
+  p <- vis_miss(flights_tsible[, from:to], warn_large_data = FALSE) +
+  ggtitle(paste("Missing Values - Columns", from, "to", to))
+
+  print(p)
+}
+```
+
+
+```{r}
+first_flights <- flights_tsible |>
+  filter(flight == 4)
+
+first_flights
+```
+
+```{r}
+first_flights |> autoplot(battery_current)
+
+first_flights |> autoplot(battery_voltage)
+```
+
+
+
+```{r}
+ggplot(first_flights, aes(x = lat_m, y = lon_m)) +
+  geom_path(color = "steelblue") +
+  labs(title = "X-Y projection of a drone flight",
+       x = "Lat (m)",
+       y = "Lon (m)") +
+  theme_minimal()
+```
+
+```{r}
+ggplot(first_flights, aes(x = 1:nrow(first_flights))) +
+  geom_line(aes(y = altitude, color = "Original height")) +
+  geom_line(aes(y = alt,    color = "Normalized height")) +
+  scale_color_manual(
+    name   = "Series",
+    values = c("Original height" = "steelblue", "Normalized height" = "firebrick")
+  ) +
+  labs(
+    title = "Comparison of Original vs. Normalized Drone Height",
+    x     = "Time (row index)",
+    y     = "Height (m)"
+  ) +
+  theme_minimal()
+
+```
+
+```{r}
+
+plot_ly(
+  data = first_flights,
+  x = ~lon_m,
+  y = ~lat_m,
+  z = ~alt,
+  type = "scatter3d",
+  mode = "lines",
+  color = ~flight_frame,
+  colors = colorRamp(c("blue", "red")),
+  line = list(width = 6),
+  hoverinfo = "x+y+z"
+) %>%
+  layout(
+    title = "3D Flight Path Colored by Time",
+    scene = list(
+      xaxis = list(title = "Longitude (m)"),
+      yaxis = list(title = "Latitude (m)"),
+      zaxis = list(title = "Altitude (m)")
+    )
+  )
+```
+
+
+```{r}
+summary(first_flights$speed_h_ms)
+
+ggplot(first_flights, aes(x = 1:nrow(first_flights))) +
+  geom_line(aes(y = speed, color = "Programmed speed")) +
+  geom_line(aes(y = speed_h_ms,    color = "Horizontal speed")) +
+  scale_color_manual(
+    name   = "Series",
+    values = c("Programmed speed" = "steelblue", "Horizontal speed" = "firebrick")
+  ) +
+  labs(
+    title = "Comparison of Programmed vs. Horizontal Drone Height",
+    x     = "Time (row index)",
+    y     = "Speed (m/s)"
+  ) +
+  theme_minimal()
+```
+
+
+```{r}
+ggplot(first_flights, aes(x = time)) +
+  geom_line(aes(y = speed_h_ms, color = "Horizontal speed")) +
+  geom_line(aes(y = wind_effect,    color = "Wind effect")) +
+  scale_color_manual(
+    name   = "Series",
+    values = c("Horizontal speed" = "steelblue", "Wind effect" = "firebrick")
+  ) +
+  labs(
+    title = "Comparison of Wind effect vs. Horizontal Drone Speed",
+    x     = "Time (row index)",
+    y     = "Speed (m/s)"
+  ) +
+  theme_minimal()
+```
+
+
+
+
+```{r}
+selected_vars <- c("wind_effect", "speed_h_ms", "alt", "velocity_z", "battery_voltage", "battery_current")
+
+flights_tsible %>%
+  select(all_of(selected_vars)) %>%
+  ggcorr(label = TRUE)
+  
+```
+
+
+```{r}
+ggplot(first_flights[0:220, ], aes(x = time[0:220], y = soc_coulomb_mAh[0:220])) +
+  geom_line(color = "steelblue",) +
+  labs(title = "Battery Charge Level Differenced Lag = 1",
+       x = "Time (row index)",
+       y = "Charge Level difference") +
+  theme_minimal()
+```
+
+
+```{r}
+flights_tsible <- flights_tsible |>
+  mutate(
+    heading_angle = atan2(velocity_y, velocity_x),
+    wind_dir_rad = (wind_angle %% 360) * pi / 180,
+    wind_effect = ifelse(
+      is.na(wind_dir_rad) | wind_speed == 0,
+      0,
+      wind_speed * cos(wind_dir_rad - heading_angle)
+    ),
+    wind_effect_abs = abs(wind_effect)
+  )
+```
+
+```{r}
+selected_vars <- c("wind_effect", "wind_effect_abs", "speed_h_ms", "alt", "velocity_z", "heading_angle", "soc_coulomb_mAh", "d_position_h","d_position_total")
+
+flights_tsible %>%
+  select(all_of(selected_vars)) %>%
+  ggcorr(label = TRUE)
+```
+
+
+```{r}
+ggplot(first_flights, aes(x = time)) +
+  geom_line(y = first_flights$d_position_h, color = "red",) +
+  geom_line(y = first_flights$d_position_total, color = "blue",) +
+  labs(title = "Delta position - horizontal and total",
+       x = "Time (row index)",
+       y = "Meters") +
+  theme_minimal()
+```
+
+
+```{r}
+first_flights
+
+```
+
+
+```{r}
+selected_vars <- c("wind_effect", "speed_h_ms", "alt", "velocity_z", "battery_current", "d_position_h","d_position_total")
+
+flights_tsible %>%
+  select(all_of(selected_vars)) %>%
+  ggcorr(label = TRUE)
+```
+
+```{r}
+ggplot(data = first_flights, aes(x = wind_effect, y = d_position_total)) +
+  geom_point(alpha = 0.3)
+```
+
+```{r}
+
+flights_tsible %>%
+  mutate(speed_bin = cut(wind_effect, breaks = seq(min(wind_effect, na.rm = TRUE), max(wind_effect, na.rm = TRUE), by = 1))) %>%
+  group_by(speed_bin) %>%
+  summarise(avg_d_position_h = mean(d_position_h, na.rm = TRUE)) %>%
+  ggplot(aes(x = speed_bin, y = avg_d_position_h)) +
+  geom_col(fill = "steelblue") +
+  theme_minimal() +
+  labs(
+    x = "Wind Effect (m/s, binned)",
+    y = "Average d_position_h",
+    title = "Average d_position_h per Speed Bin"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+flights_tsible %>%
+  mutate(speed_bin = cut(wind_effect_abs, breaks = seq(min(wind_effect_abs, na.rm = TRUE), max(wind_effect_abs, na.rm = TRUE), by = 1))) %>%
+  group_by(speed_bin) %>%
+  summarise(avg_d_position_h = mean(d_position_h, na.rm = TRUE)) %>%
+  ggplot(aes(x = speed_bin, y = avg_d_position_h)) +
+  geom_col(fill = "steelblue") +
+  theme_minimal() +
+  labs(
+    x = "Wind Effect absolute (m/s, binned)",
+    y = "Average d_position_h",
+    title = "Average d_position_h per Speed Bin"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+
+small_threshold <- 6
+large_threshold <- 12
+
+
+# Small wind effect bins
+flights_tsible %>%
+  filter(wind_effect_abs <= small_threshold) %>%
+  mutate(speed_bin = cut(
+    wind_effect_abs,
+    breaks = seq(floor(min(wind_effect_abs, na.rm = TRUE)),
+                 ceiling(small_threshold), 
+                 by = 0.5)
+  )) %>%
+  group_by(speed_bin) %>%
+  summarise(avg_d_position_h = mean(d_position_h, na.rm = TRUE)) %>%
+  ggplot(aes(x = speed_bin, y = avg_d_position_h)) +
+  geom_col(fill = "steelblue") +
+  theme_minimal() +
+  labs(title = "Small Wind Effect")
+
+# Medium wind effect bins
+flights_tsible %>%
+  filter(wind_effect_abs >= small_threshold & wind_effect_abs <= large_threshold) %>%
+  mutate(speed_bin = cut(
+    wind_effect_abs,
+    breaks = seq(floor(small_threshold),
+                 ceiling(large_threshold), 
+                 by = 0.5)
+  )) %>%
+  group_by(speed_bin) %>%
+  summarise(avg_d_position_h = mean(d_position_h, na.rm = TRUE)) %>%
+  ggplot(aes(x = speed_bin, y = avg_d_position_h)) +
+  geom_col(fill = "steelblue") +
+  theme_minimal() +
+  labs(title = "Medium Wind Effect")
+
+
+# Large wind effect bins
+flights_tsible %>%
+  filter(wind_effect_abs >= large_threshold) %>%
+  mutate(speed_bin = cut(
+    wind_effect_abs,
+    breaks = seq(floor(large_threshold),
+                 ceiling(max(wind_effect_abs, na.rm = TRUE)), 
+                 by = 0.5)
+  )) %>%
+  group_by(speed_bin) %>%
+  summarise(avg_d_position_h = mean(d_position_h, na.rm = TRUE)) %>%
+  ggplot(aes(x = speed_bin, y = avg_d_position_h)) +
+  geom_col(fill = "darkred") +
+  theme_minimal() +
+  labs(title = "Large Wind Effect")
+```
+
+```{r}
+
+flights_tsible %>%
+  mutate(speed_bin = cut(wind_effect, breaks = seq(min(wind_effect, na.rm = TRUE), max(wind_effect, na.rm = TRUE), by = 1))) %>%
+  group_by(speed_bin) %>%
+  summarise(avg_mAh_used = mean(mAh_used, na.rm = TRUE)) %>%
+  ggplot(aes(x = speed_bin, y = avg_mAh_used)) +
+  geom_col(fill = "steelblue") +
+  theme_minimal() +
+  labs(
+    x = "Wind Effect (m/s, binned)",
+    y = "Average mAh_used",
+    title = "Average mAh_used per wind_effect Bin"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+flights_tsible %>%
+  mutate(speed_bin = cut(wind_effect_abs, breaks = seq(min(wind_effect_abs, na.rm = TRUE), max(wind_effect_abs, na.rm = TRUE), by = 1))) %>%
+  group_by(speed_bin) %>%
+  summarise(avg_mAh_used = mean(mAh_used, na.rm = TRUE)) %>%
+  ggplot(aes(x = speed_bin, y = avg_mAh_used)) +
+  geom_col(fill = "steelblue") +
+  theme_minimal() +
+  labs(
+    x = "Wind Effect abs (m/s, binned)",
+    y = "Average mAh_used",
+    title = "Average mAh_used per wind_effect Bin"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+
+
+# Small wind effect bins
+flights_tsible %>%
+  filter(wind_effect_abs <= small_threshold) %>%
+  mutate(speed_bin = cut(
+    wind_effect_abs,
+    breaks = seq(floor(min(wind_effect_abs, na.rm = TRUE)),
+                 ceiling(small_threshold), 
+                 by = 0.5)
+  )) %>%
+  group_by(speed_bin) %>%
+  summarise(avg_mAh_used = mean(mAh_used, na.rm = TRUE)) %>%
+  ggplot(aes(x = speed_bin, y = avg_mAh_used)) +
+  geom_col(fill = "steelblue") +
+  theme_minimal() +
+  labs(title = "Small Wind Effect")
+
+# Medium wind effect bins
+flights_tsible %>%
+  filter(wind_effect_abs >= small_threshold & wind_effect_abs <= large_threshold) %>%
+  mutate(speed_bin = cut(
+    wind_effect_abs,
+    breaks = seq(floor(small_threshold),
+                 ceiling(large_threshold), 
+                 by = 0.5)
+  )) %>%
+  group_by(speed_bin) %>%
+  summarise(avg_mAh_used = mean(mAh_used, na.rm = TRUE)) %>%
+  ggplot(aes(x = speed_bin, y = avg_mAh_used)) +
+  geom_col(fill = "steelblue") +
+  theme_minimal() +
+  labs(title = "Medium Wind Effect")
+
+
+# Large wind effect bins
+flights_tsible %>%
+  filter(wind_effect_abs >= large_threshold) %>%
+  mutate(speed_bin = cut(
+    wind_effect_abs,
+    breaks = seq(floor(large_threshold),
+                 ceiling(max(wind_effect_abs, na.rm = TRUE)), 
+                 by = 0.5)
+  )) %>%
+  group_by(speed_bin) %>%
+  summarise(avg_mAh_used = mean(mAh_used, na.rm = TRUE)) %>%
+  ggplot(aes(x = speed_bin, y = avg_mAh_used)) +
+  geom_col(fill = "darkred") +
+  theme_minimal() +
+  labs(title = "Large Wind Effect")
+```
+
+```{r}
+small_threshold <- -6
+large_threshold <- 6
+
+# Small wind effect bins (between -6 and 6)
+flights_tsible %>%
+  filter(wind_effect >= small_threshold & wind_effect <= large_threshold) %>%
+  mutate(speed_bin = cut(
+    wind_effect,
+    breaks = seq(floor(small_threshold),
+                 ceiling(large_threshold),
+                 by = 1)
+  )) %>%
+  group_by(speed_bin) %>%
+  summarise(avg_mAh_used = mean(mAh_used, na.rm = TRUE), .groups = "drop") %>%
+  ggplot(aes(x = speed_bin, y = avg_mAh_used)) +
+  geom_col(fill = "steelblue") +
+  theme_minimal() +
+  labs(title = "Small Wind Effect (-6 to 6)")
+
+# Negative wind effect bins (less than -6)
+flights_tsible %>%
+  filter(wind_effect < small_threshold) %>%
+  mutate(speed_bin = cut(
+    wind_effect,
+    breaks = seq(floor(min(wind_effect, na.rm = TRUE)),
+                 small_threshold,
+                 by = 1)
+  )) %>%
+  group_by(speed_bin) %>%
+  summarise(avg_mAh_used = mean(mAh_used, na.rm = TRUE), .groups = "drop") %>%
+  ggplot(aes(x = speed_bin, y = avg_mAh_used)) +
+  geom_col(fill = "dodgerblue3") +
+  theme_minimal() +
+  labs(title = "Negative Wind Effect (< -6)")
+
+# Large wind effect bins (greater than 6)
+flights_tsible %>%
+  filter(wind_effect > large_threshold) %>%
+  mutate(speed_bin = cut(
+    wind_effect,
+    breaks = seq(large_threshold,
+                 ceiling(max(wind_effect, na.rm = TRUE)),
+                 by = 1)
+  )) %>%
+  group_by(speed_bin) %>%
+  summarise(avg_mAh_used = mean(mAh_used, na.rm = TRUE), .groups = "drop") %>%
+  ggplot(aes(x = speed_bin, y = avg_mAh_used)) +
+  geom_col(fill = "darkred") +
+  theme_minimal() +
+  labs(title = "Large Wind Effect (> 6)")
+
+```
+
+
+```{r}
+# Payload analysis
+
+flights_tsible %>%
+  ggplot(aes(x = payload)) +
+  geom_histogram(bins = 4) +
+  theme_minimal() +
+  labs(
+    x = "Payload (g)",
+    y = "Count",
+    title = "Distribution of Payload"
+  )
+
+flights_tsible %>% count(payload)
+```
+
+```{r}
+selected_vars <- c("wind_effect", "wind_effect_abs", "speed_h_ms", "battery_current", "d_position_h","payload", "linear_acceleration_z")
+
+flights_tsible %>%
+  select(all_of(selected_vars)) %>%
+  ggcorr(label = TRUE)
+```
+
+```{r}
+flights_tsible %>%
+  group_by(payload) %>%
+  summarise(avg_mAh_used = mean(mAh_used, na.rm = TRUE), .groups = "drop") %>%
+  ggplot(aes(x = factor(payload), y = avg_mAh_used)) +
+  geom_col(fill = "steelblue") +
+  theme_minimal() +
+  labs(
+    x = "Charge (mAh)",
+    y = "Average mAh_used",
+    title = "Average mAh_used per Payload"
+  )
+
+flights_tsible %>%
+  group_by(payload) %>%
+  summarise(avg_d_position_h = mean(d_position_h, na.rm = TRUE), .groups = "drop") %>%
+  ggplot(aes(x = factor(payload), y = avg_d_position_h)) +
+  geom_col(fill = "steelblue") +
+  theme_minimal() +
+  labs(
+    x = "Payload (g)",
+    y = "Average d_position_h",
+    title = "Average d_position_h per Payload"
+  )
+
+flights_tsible %>%
+  group_by(payload) %>%
+  summarise(avg_alt = mean(alt, na.rm = TRUE), .groups = "drop") %>%
+  ggplot(aes(x = factor(payload), y = avg_alt)) +
+  geom_col(fill = "steelblue") +
+  theme_minimal() +
+  labs(
+    x = "Altitude (m)",
+    y = "Average Altitude",
+    title = "Average Altitude per Payload"
+  )
+```
+
+```{r}
+
+```
+
+```{r}
+all_ids <- unique(flights_tsible$flight)
+train_ids <- sample(all_ids, size = floor(0.8 * length(all_ids)))
+test_ids  <- setdiff(all_ids, train_ids)
+
+train_data <- flights_tsible %>% filter(flight %in% train_ids)
+test_data  <- flights_tsible %>% filter(flight %in% test_ids)
+```
+
+
+```{r}
+MLR_model <- lm(battery_current ~ speed_h_ms + wind_effect + payload + d_position_h + alt + linear_acceleration_z
+ + battery_voltage, data = train_data)
+
+summary(MLR_model)
+```
+
+```{r}
+test_data <- test_data %>%
+  mutate(battery_current_pred = predict(MLR_model, newdata = test_data))
+
+
+```
+
+```{r}
+flight_to_plot <- sample(test_ids, 1)
+plot_data <- test_data %>%
+  filter(flight == flight_to_plot) %>%
+  select(time, battery_current, battery_current_pred)
+
+
+ggplot(plot_data, aes(x = time)) +
+  geom_line(aes(y = battery_current), color = "black", size = 0.8) +
+  geom_line(aes(y = battery_current_pred), color = "blue", size = 0.8) +
+  theme_minimal() +
+  labs(
+    title = paste("Flight", flight_to_plot, "— Real vs Predicted battery_current"),
+    x = "Time",
+    y = "Battery current (A)",
+    caption = "Black = real, Blue = predicted"
+  )
+
+```
+
+
+
+```{r}
+plot_data <- plot_data |>
+  group_by_key() |> 
+  arrange(time) |>
+  mutate(
+    dt_sec = as.numeric(time - lag(time, default = first(time))),
+    mAh_used = (dt_sec/3600) * (battery_current*1000),
+    cum_mAh_used = cumsum(mAh_used),
+    total_mAh_used = max(cum_mAh_used),
+    soc_coulomb_mAh = total_mAh_used - cum_mAh_used,
+    
+    mAh_used_pred = (dt_sec/3600) * (battery_current_pred*1000),
+    cum_mAh_used_pred = cumsum(mAh_used_pred),
+    total_mAh_used_pred = max(cum_mAh_used_pred),
+    soc_coulomb_mAh_pred = total_mAh_used_pred - cum_mAh_used_pred,
+  ) |>
+  ungroup()
+```
+
+```{r}
+ggplot(plot_data, aes(x = time)) +
+  geom_line(aes(y = soc_coulomb_mAh), color = "black", size = 0.8) +
+  geom_line(aes(y = soc_coulomb_mAh_pred), color = "blue", size = 0.8) +
+  theme_minimal() +
+  labs(
+    title = paste("Flight", flight_to_plot, "— Real vs Predicted SoC"),
+    x = "Time",
+    y = "SoC (mAh)",
+    caption = "Black = real, Blue = predicted"
+  )
+```

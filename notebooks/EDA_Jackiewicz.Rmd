@@ -1,0 +1,333 @@
+---
+title: "Dane od dr. Jackiewicza EDA"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+library(GGally)
+library( naniar)
+library(dplyr)
+library(plotly)
+  
+```
+
+```{r}
+dataset <- read.csv("./data/LOG_dane_od_dr_Jackiwicza 1.csv", sep = ";")
+print(dataset)
+colnames(dataset) |> print()
+```
+
+```{r}
+numeric_data <- dataset |>
+  select(where(is.numeric))
+print("Numeric columns") 
+colnames(numeric_data)
+
+boolean_data <- dataset |>
+  select(where(is.logical))
+print("Boolean columns") 
+colnames(boolean_data)
+
+```
+```{r}
+chunk_size <- 20
+n_chunks <- ceiling(ncol(dataset) / chunk_size)
+
+for (step in 1:n_chunks) {
+  from <- ((step - 1) * chunk_size) + 1
+  to <- min(step * chunk_size, ncol(dataset))
+  
+  p <- vis_miss(dataset[, from:to]) +
+  ggtitle(paste("Missing Values - Columns", from, "to", to))
+
+  print(p)
+}
+
+```
+```{r}
+comma_to_numeric <- function(x) {
+  x_clean <- str_replace_all(x, ",", ".")
+  as.numeric(x_clean)
+}
+
+
+clean_dataset <- dataset %>%
+  mutate(
+    flytime = comma_to_numeric(OSD.flyTime..s.),
+    altitude_m = comma_to_numeric(OSD.height..ft.) * 0.3048,
+    flyTime_s = comma_to_numeric(dataset$OSD.flyTime..s.),
+    latitude = comma_to_numeric(dataset$OSD.latitude),
+    longitude = comma_to_numeric(dataset$OSD.longitude),
+    windspeed_ms = comma_to_numeric(dataset$WEATHER.windSpeed..MPH.) * 0.44704,
+    windspeed_ms = replace_na(windspeed_ms, 0.0),
+    speed_h_ms = comma_to_numeric(dataset$OSD.hSpeed..MPH.) * 0.44704,          
+    speed_x_ms = comma_to_numeric(dataset$OSD.xSpeed..MPH.) * 0.44704,
+    speed_y_ms = comma_to_numeric(dataset$OSD.ySpeed..MPH.) * 0.44704,          
+    speed_z_ms = comma_to_numeric(dataset$OSD.zSpeed..MPH.) * 0.44704,
+    pitch = comma_to_numeric(dataset$OSD.pitch),
+    roll = comma_to_numeric(dataset$OSD.roll),
+    yaw = comma_to_numeric(dataset$OSD.yaw)
+  ) %>%
+  select(
+    CUSTOM.date..local.,
+    flytime,
+    altitude_m, 
+    latitude,
+    longitude,
+    speed_h_ms,
+    speed_x_ms,
+    speed_y_ms,
+    speed_z_ms,
+    BATTERY.chargeLevel...., 
+    WEATHER.windDirection, 
+    WEATHER.windRelativeDirection, 
+    windspeed_ms, 
+    WEATHER.windStrength,
+    pitch,
+    roll,
+    yaw
+    )
+
+ref_lat <- clean_dataset$latitude[1]
+ref_lon <- clean_dataset$longitude[1]
+
+clean_dataset <- clean_dataset %>%
+  mutate(
+    flight_frame = row_number(),
+    lat_rad = latitude * pi / 180,
+    lat_m = (latitude - latitude[1]) * 111111,
+    lon_m = (longitude - longitude[1]) * 111111 * cos(lat_rad)
+  )
+
+clean_dataset
+```
+
+```{r}
+chunk_size <- 25
+n_chunks <- ceiling(ncol(clean_dataset) / chunk_size)
+
+for (step in 1:n_chunks) {
+  from <- ((step - 1) * chunk_size) + 1
+  to <- min(step * chunk_size, ncol(clean_dataset))
+  
+  p <- vis_miss(clean_dataset[, from:to]) +
+  ggtitle(paste("Missing Values - Columns", from, "to", to))
+
+  print(p)
+}
+
+```
+
+```{r}
+diff_charge <- diff(dataset$BATTERY.currentCapacity..mAh.)
+diff_df <- data.frame(
+  index = 2:nrow(dataset),
+  diff_value = diff_charge
+)
+
+# Plotting
+ggplot(dataset, aes(x = 1:nrow(dataset), y = BATTERY.currentCapacity..mAh.)) +
+  geom_line(color = "steelblue",) +
+  labs(title = "Battery Charge Level Over Time",
+       x = "Time (row index)",
+       y = "Charge Level (mAh)") +
+  theme_minimal()
+
+
+ggplot(diff_df[800:900, ], aes(x = 800:900, y = diff_charge[800:900])) +
+  geom_line(color = "steelblue",) +
+  labs(title = "Battery Charge Level Differenced Lag = 1",
+       x = "Time (row index)",
+       y = "Charge Level difference") +
+  theme_minimal()
+
+
+ggplot(dataset, aes(x = 1:nrow(dataset), y = BATTERY.chargeLevel....)) +
+  geom_line(color = "steelblue",) +
+  labs(title = "Battery Percent Level Over Time",
+       x = "Time (row index)",
+       y = "Charge Level (%)") +
+  theme_minimal()
+```
+
+```{r}
+selected_bools <- dataset |>
+  select(WEATHER.isFacingWind, WEATHER.isFlyingIntoWind)
+```
+
+
+```{r}
+```
+
+
+```{r}
+bool_long <- selected_bools |>
+  pivot_longer(cols = everything(),
+               names_to = "variable",
+               values_to = "value")
+ggplot(bool_long, aes(x = variable, fill = value)) +
+  geom_bar(position = "dodge") +
+  labs(title = "TRUE/FALSE Counts for Selected Columns",
+       x = "Variable",
+       y = "Count",
+       fill = "Value") +
+  theme_minimal()
+
+```
+
+```{r}
+ggplot(clean_dataset, aes(x = 1:nrow(clean_dataset), y = altitude_m)) +
+  geom_line(color = "steelblue",) +
+  labs(title = "Height of the drone during flight",
+       x = "Time (row index)",
+       y = "Height (m.)") +
+  theme_minimal()
+```
+
+
+```{r}
+ggplot(clean_dataset, aes(x = lat_m, y = lon_m)) +
+  geom_path(color = "steelblue") +
+  labs(title = "X-Y projection of a drone flight",
+       x = "Lat (m)",
+       y = "Lon (m)") +
+  theme_minimal()
+```
+
+
+```{r}
+
+
+plot_ly(
+  data = clean_dataset,
+  x = ~lon_m,
+  y = ~lat_m,
+  z = ~altitude_m,
+  type = "scatter3d",
+  mode = "lines",
+  color = ~flight_frame,
+  colors = colorRamp(c("blue", "red")),
+  line = list(width = 6),
+  hoverinfo = "x+y+z"
+) %>%
+  layout(
+    title = "3D Flight Path Colored by Time",
+    scene = list(
+      xaxis = list(title = "Longitude (m)"),
+      yaxis = list(title = "Latitude (m)"),
+      zaxis = list(title = "Altitude (m)")
+    )
+  )
+
+```
+
+
+
+```{r}
+p1 <- clean_dataset %>%
+  mutate(row = row_number()) %>%
+  select(row, pitch, roll) %>%
+  pivot_longer(cols = c(pitch, roll), names_to = "orientation", values_to = "angle") %>%
+  ggplot(aes(x = row, y = angle, color = orientation)) +
+  geom_line(alpha = 0.8) +
+  labs(title = "Pitch and Roll") +
+  theme_minimal()
+
+p2 <- clean_dataset %>%
+  mutate(row = row_number()) %>%
+  select(row, yaw) %>%
+  ggplot(aes(x = row, y = yaw)) +
+  geom_line(color = "darkorange", alpha = 0.8) +
+  labs(title = "Yaw") +
+  theme_minimal()
+
+print(p1)
+print(p2)
+```
+
+
+```{r}
+horizontal_speed_calc <- sqrt(clean_dataset$speed_x_ms^2 + clean_dataset$speed_y_ms^2)
+plot(horizontal_speed_calc - clean_dataset$speed_h_ms)
+```
+
+
+```{r}
+ggplot(clean_dataset, aes(x=speed_z_ms, y=altitude_m)) +
+  geom_point() +
+  labs(
+    x = "Altitude (m)", 
+    y = " Vertical Speed (m/s)"
+  )
+
+pearson <- cor(clean_dataset$altitude_m, clean_dataset$speed_z_ms, method = "pearson")
+spearman <- cor(clean_dataset$altitude_m, clean_dataset$speed_z_ms, method = "spearman")
+kendall <- cor(clean_dataset$altitude_m, clean_dataset$speed_z_ms, method = "kendall")
+sprintf("Pearson: %s; Spearman: %s; Kendall: %s", pearson, spearman, kendall)
+
+```
+
+```{r}
+ggplot(clean_dataset, aes(x=speed_h_ms, y=altitude_m)) +
+  geom_point() +
+  labs(
+    x = "Altitude (m)", 
+    y = " Horizaontal Speed (m/s)"
+  )
+
+pearson <- cor(clean_dataset$altitude_m, clean_dataset$speed_h_ms, method = "pearson")
+spearman <- cor(clean_dataset$altitude_m, clean_dataset$speed_h_ms, method = "spearman")
+kendall <- cor(clean_dataset$altitude_m, clean_dataset$speed_h_ms, method = "kendall")
+sprintf("Pearson: %s; Spearman: %s; Kendall: %s", pearson, spearman, kendall)
+```
+
+
+```{r}
+heading_angle <- atan2(clean_dataset$speed_y_ms, clean_dataset$speed_x_ms)
+
+wind_dir_map <- c(
+  "N"  = 0,
+  "NE" = pi / 4,
+  "E"  = pi / 2,
+  "SE" = 3 * pi / 4,
+  "S"  = pi,
+  "SW" = 5 * pi / 4,
+  "W"  = 3 * pi / 2,
+  "NW" = 7 * pi / 4
+)
+
+wind_dir <- as.numeric(wind_dir_map[clean_dataset$WEATHER.windDirection])
+
+wind_effect <- ifelse(
+  clean_dataset$windspeed_ms == 0 | is.na(wind_dir),
+  0,
+  clean_dataset$windspeed_ms * cos(wind_dir - heading_angle)
+)
+
+clean_dataset$wind_effect <- wind_effect
+
+```
+
+```{r}
+ggplot(clean_dataset, aes(x=speed_h_ms, y=wind_effect)) +
+  geom_point() +
+  labs(
+    x = "Drone speed (m/s)", 
+    y = "Wind effect (m/s)"
+  )
+
+pearson <- cor(clean_dataset$speed_h_ms, clean_dataset$wind_effect, method = "pearson", use = "complete.obs")
+spearman <- cor(clean_dataset$speed_h_ms, clean_dataset$wind_effect, method = "spearman", use = "complete.obs")
+kendall <- cor(clean_dataset$speed_h_ms, clean_dataset$wind_effect, method = "kendall", use = "complete.obs")
+sprintf("Pearson: %s; Spearman: %s; Kendall: %s", pearson, spearman, kendall)
+```
+
+```{r}
+selected_vars <- c("altitude_m", "speed_h_ms", "roll", "pitch", "yaw", "wind_effect", "speed_z_ms", "flytime")
+
+clean_dataset %>%
+  select(all_of(selected_vars)) %>%
+  ggcorr(label = TRUE)
+
+```

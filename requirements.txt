@@ -1,0 +1,22 @@
+# Core
+pandas
+numpy
+scikit-learn
+sktime
+statsmodels
+joblib
+
+# Visualization
+matplotlib
+seaborn
+plotly
+
+# Config and Utilities
+pyyaml
+tqdm
+
+# Workflow Orchestration
+prefect
+
+# Testing
+pytest
