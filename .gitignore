@@ -48,3 +48,5 @@ Thumbs.db
 # Python cache
 *.pkl
 *.joblib
+
+data/
