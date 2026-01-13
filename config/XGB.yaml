@@ -1,0 +1,11 @@
+features:
+  - speed_h_ms
+  - wind_effect
+  - payload
+  - d_position_h
+  - alt
+  - linear_acceleration_z
+  - battery_voltage
+  - is_flying
+
+train_split: 0.8

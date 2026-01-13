@@ -4,6 +4,7 @@ numpy
 scikit-learn
 sktime
 statsmodels
+xgboost
 joblib
 
 # Visualization
