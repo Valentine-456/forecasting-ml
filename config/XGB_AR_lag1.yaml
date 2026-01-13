@@ -1,4 +1,5 @@
 features:
+  - battery_current_lag1
   - speed_h_ms
   - wind_effect
   - payload
@@ -6,8 +7,9 @@ features:
   - alt
   - linear_acceleration_z
   - battery_voltage
+  - is_flying
 
 train_split: 0.8
 
 model:
-  name: mlr
+  name: xgb_ar_lag1

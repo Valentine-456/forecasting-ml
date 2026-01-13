@@ -36,9 +36,8 @@ def train_xgb(train_df, test_df, features):
     soc_metrics = battery_soc_metrics(test_df, preds)
     return model, current_metrics, soc_metrics
 
-def save_xgb(model, name="xgb_battery_current.pkl"):
+def save_xgb(model, name="xgb_battery_current"):
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
-    path = MODELS_DIR / name
+    path = MODELS_DIR / f"{name}.pkl"
     joblib.dump(model, path)
     print(f"XGBoost model saved at {path}")
-    return name

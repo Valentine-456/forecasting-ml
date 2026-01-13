@@ -20,9 +20,9 @@ def train_mlr(train_df, test_df, features):
     
     return model, current_metrics, soc_metrics
 
-def save_mlr(model, name="mlr_battery_current.pkl"):
+def save_mlr(model, name="mlr_battery_current"):
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
-    path = MODELS_DIR / name
+    path = MODELS_DIR / f"{name}.pkl"
     joblib.dump(model, path)
     print(f"Model saved at {path}")
     return name

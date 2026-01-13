@@ -20,6 +20,7 @@ def main():
     cfg = load_config("XGB.yaml")
     features = cfg["features"]
     split = cfg["train_split"]
+    model_name = cfg["model"]["name"]
 
     print("Splitting train/test by flight...")
     train_df, test_df = train_test_split_flight(df, split_ratio=split)
@@ -28,7 +29,7 @@ def main():
     model, current_metrics, soc_metrics = train_xgb(train_df, test_df, features)
 
     print("Saving model...")
-    model_name = save_xgb(model)
+    save_xgb(model, name=model_name)
 
     print("Evaluation:", print_metrics(model_name, current_metrics, soc_metrics))
 
