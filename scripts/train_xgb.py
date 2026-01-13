@@ -5,6 +5,7 @@ from src.data.train_test_split import train_test_split_flight
 from src.features.add_features import add_features
 from src.features.soc_estimation import compute_soc
 from src.models.xgboost import train_xgb, save_xgb
+from src.utils.metrics import print_metrics
 
 
 def main():
@@ -24,12 +25,12 @@ def main():
     train_df, test_df = train_test_split_flight(df, split_ratio=split)
 
     print("Training XGBoost model...")
-    model, metrics = train_xgb(train_df, test_df, features)
-
-    print("Evaluation:", metrics)
+    model, current_metrics, soc_metrics = train_xgb(train_df, test_df, features)
 
     print("Saving model...")
-    save_xgb(model)
+    model_name = save_xgb(model)
+
+    print("Evaluation:", print_metrics(model_name, current_metrics, soc_metrics))
 
     print("Done!")
 

@@ -2,6 +2,7 @@ import joblib
 import numpy as np
 from xgboost import XGBRegressor
 from sklearn.metrics import mean_squared_error
+from src.utils.metrics import battery_current_metrics, battery_soc_metrics
 from src.utils.path_resolver import MODELS_DIR
 
 def train_xgb(train_df, test_df, features):
@@ -31,13 +32,13 @@ def train_xgb(train_df, test_df, features):
     )
 
     preds = model.predict(X_test)
-    mse = mean_squared_error(y_test, preds)
-
-    return model, {"mse": mse}
-
+    current_metrics = battery_current_metrics(y_test, preds)
+    soc_metrics = battery_soc_metrics(test_df, preds)
+    return model, current_metrics, soc_metrics
 
 def save_xgb(model, name="xgb_battery_current.pkl"):
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     path = MODELS_DIR / name
     joblib.dump(model, path)
     print(f"XGBoost model saved at {path}")
+    return name

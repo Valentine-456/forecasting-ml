@@ -1,6 +1,7 @@
 import joblib
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error
+from src.utils.metrics import battery_current_metrics, battery_soc_metrics
 from src.utils.path_resolver import MODELS_DIR
 
 def train_mlr(train_df, test_df, features):
@@ -14,12 +15,14 @@ def train_mlr(train_df, test_df, features):
     model.fit(X_train, y_train)
 
     preds = model.predict(X_test)
-    mse = mean_squared_error(y_test, preds)
-
-    return model, {"mse": mse}
+    current_metrics = battery_current_metrics(y_test, preds)
+    soc_metrics = battery_soc_metrics(test_df, preds)
+    
+    return model, current_metrics, soc_metrics
 
 def save_mlr(model, name="mlr_battery_current.pkl"):
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     path = MODELS_DIR / name
     joblib.dump(model, path)
     print(f"Model saved at {path}")
+    return name

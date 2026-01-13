@@ -4,6 +4,7 @@ from src.data.train_test_split import train_test_split_flight
 from src.features.add_features import add_features
 from src.features.soc_estimation import compute_soc
 from src.models.mlr import train_mlr, save_mlr
+from src.utils.metrics import print_metrics
 
 def main():
     print("Loading data...")
@@ -21,12 +22,14 @@ def main():
     train_df, test_df = train_test_split_flight(df, split_ratio=split)
 
     print("Training MLR model...")
-    model, metrics = train_mlr(train_df, test_df, features)
+    model, ent_metrics, soc_metrics = train_mlr(train_df, test_df, features)
 
-    print("Evaluation:", metrics)
+    model, current_metrics, soc_metrics = train_mlr(train_df, test_df, features)
 
     print("Saving model...")
-    save_mlr(model)
+    model_name = save_mlr(model)
+
+    print("Evaluation:", print_metrics(model_name, current_metrics, soc_metrics))
 
     print("Done!")
 
