@@ -2,6 +2,7 @@ from src.features.add_is_flying import add_is_flying
 from src.utils.config_resolver import load_config
 from src.data.load_data import load_flights
 from src.data.train_test_split import train_test_split_flight
+from src.data.filter_dummy_flights import filter_dummy_flights
 from src.features.add_features import add_features
 from src.features.soc_estimation import compute_soc
 from src.models.mlr import train_mlr, save_mlr
@@ -12,6 +13,7 @@ def main():
     df = load_flights()
 
     print("Engineering features...")
+    df = filter_dummy_flights(df)
     df = add_features(df)
     df = compute_soc(df)
     df = add_is_flying(df)
