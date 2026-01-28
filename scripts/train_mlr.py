@@ -1,3 +1,4 @@
+from src.features.add_is_flying import add_is_flying
 from src.utils.config_resolver import load_config
 from src.data.load_data import load_flights
 from src.data.train_test_split import train_test_split_flight
@@ -13,6 +14,7 @@ def main():
     print("Engineering features...")
     df = add_features(df)
     df = compute_soc(df)
+    df = add_is_flying(df)
 
     cfg = load_config("mlr.yaml")
     features = cfg["features"]
