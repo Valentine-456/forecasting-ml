@@ -1,23 +1,21 @@
-# Core
+--extra-index-url https://download.pytorch.org/whl/cu121
+
 pandas
 numpy
 scikit-learn
 sktime
 statsmodels
 xgboost
+torch==2.5.1
 joblib
 
-# Visualization
 matplotlib
 seaborn
 plotly
 
-# Config and Utilities
 pyyaml
 tqdm
 
-# Workflow Orchestration
 prefect
 
-# Testing
 pytest
