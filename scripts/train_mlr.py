@@ -1,7 +1,7 @@
 from src.features.add_is_flying import add_is_flying
 from src.utils.config_resolver import load_config
 from src.data.load_data import load_flights
-from src.data.train_test_split import train_test_split_flight
+from src.data.train_test_split import train_test_split_flight, train_val_test_split_flight
 from src.data.filter_dummy_flights import filter_dummy_flights
 from src.features.add_features import add_features
 from src.features.soc_estimation import compute_soc
@@ -20,15 +20,17 @@ def main():
 
     cfg = load_config("mlr.yaml")
     features = cfg["features"]
-    split = cfg["train_split"]
     model_name = cfg["model"]["name"]
 
-    print("Splitting train/test by flight...")
-    train_df, test_df = train_test_split_flight(df, split_ratio=split)
+    print("Splitting train/val/test by flight...")
+    train_df, val_df, test_df = train_val_test_split_flight(
+        df,
+        train_ratio=cfg["train_split"],
+        val_ratio=cfg["validation_split"],
+        seed=42,
+    )
 
     print("Training MLR model...")
-    model, ent_metrics, soc_metrics = train_mlr(train_df, test_df, features)
-
     model, current_metrics, soc_metrics = train_mlr(train_df, test_df, features)
 
     print("Saving model...")

@@ -1,12 +1,11 @@
 from src.data.filter_dummy_flights import filter_dummy_flights
-from src.features.add_autoregressive import add_battery_current_ar
-from src.features.add_is_flying import add_is_flying
-from src.utils.config_resolver import load_config
 from src.data.load_data import load_flights
-from src.data.train_test_split import train_test_split_flight, train_val_test_split_flight
+from src.data.train_test_split import train_val_test_split_flight
 from src.features.add_features import add_features
+from src.features.add_is_flying import add_is_flying
 from src.features.soc_estimation import compute_soc
-from src.models.xgboost import train_xgb, save_xgb
+from src.models.lstm import save_lstm, train_lstm
+from src.utils.config_resolver import load_config
 from src.utils.metrics import print_metrics
 
 
@@ -19,28 +18,31 @@ def main():
     df = add_features(df)
     df = compute_soc(df)
     df = add_is_flying(df)
-    df = add_battery_current_ar(df)
 
-    cfg = load_config("XGB_AR_lag1.yaml")
+    cfg = load_config("LSTM_SMALL.yaml")
     features = cfg["features"]
     model_name = cfg["model"]["name"]
 
-    print("Splitting train/test by flight...")
+    print("Splitting train/val/test by flight...")
     train_df, val_df, test_df = train_val_test_split_flight(
         df,
         train_ratio=cfg["train_split"],
         val_ratio=cfg["validation_split"],
-        seed=42,
     )
 
-    print("Training XGBoost model...")
-    model, current_metrics, soc_metrics = train_xgb(train_df, test_df, features)
+    print("Training LSTM model...")
+    model, scalers, current_metrics, soc_metrics = train_lstm(
+        train_df=train_df,
+        val_df=val_df,
+        test_df=test_df,
+        features=features,
+        cfg=cfg,
+    )
 
     print("Saving model...")
-    save_xgb(model, name=model_name)
+    save_lstm(model, scalers, cfg=cfg, features=features, name=model_name)
 
-    print("Evaluation:", print_metrics(model_name, current_metrics, soc_metrics))
-
+    print_metrics(model_name, current_metrics, soc_metrics)
     print("Done!")
 
 

@@ -2,54 +2,84 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import r2_score
 
-def battery_current_metrics(y_test, preds):
-    y_t = y_test[y_test > 1.0]
-    y_p = preds[y_test > 1.0]
+import numpy as np
+import pandas as pd
+from sklearn.metrics import r2_score
 
-    if len(y_t) == 0:
-        return {"mape": np.nan, "r2": np.nan}
+def battery_current_metrics(test_df: pd.DataFrame):
+    mape_list = []
+    r2_list = []
 
-    r2 = r2_score(y_test, preds)
+    for _f, g in test_df.groupby("flight", sort=False):
+        g = g.dropna(subset=["battery_current_pred"]).copy()
+        if len(g) == 0:
+            continue
 
-    mape = np.mean(np.abs(y_t - y_p) / np.abs(y_t)) * 100
+        y = g["battery_current"].to_numpy()
+        p = g["battery_current_pred"].to_numpy()
 
-    return {"mape": round(mape, 2), "r2": round(r2, 4)}
+        mask = y > 1.0
+        if mask.sum() == 0:
+            mape_list.append(np.nan)
+            r2_list.append(np.nan)
+            continue
+
+        denom = np.clip(np.abs(y[mask]), 1e-9, None)
+        mape = float(np.mean(np.abs(y[mask] - p[mask]) / denom) * 100.0)
+        mape_list.append(mape)
+
+        if np.allclose(y, y[0]):
+            r2_list.append(np.nan)
+        else:
+            r2_list.append(float(r2_score(y, p)))
+
+    mape_avg = np.nanmean(mape_list) if len(mape_list) else np.nan
+    r2_avg = np.nanmean(r2_list) if len(r2_list) else np.nan
+
+    return {"mape": round(float(mape_avg), 2), "r2": round(float(r2_avg), 4)}
 
 
-def battery_soc_metrics(y_test, preds):
-    df = y_test.copy()
-    df["battery_current_pred"] = preds
+def battery_soc_metrics(test_df: pd.DataFrame):
+    df = test_df.dropna(subset=["battery_current_pred"]).copy()
+    if df.empty:
+        return {
+            "avg_final_err_relative": np.nan,
+            "max_final_err_mah": np.nan,
+            "avg_trajectory_drift": np.nan,
+        }
+
+    df = df.sort_values(["flight", "time"])
 
     df["dt_sec"] = df.groupby("flight")["time"].diff().fillna(0.0)
 
-    df["mAh_step_real"] = (df["dt_sec"] / 3600.0) * (df["battery_current"] * 1000)
-    df["mAh_step_pred"] = (df["dt_sec"] / 3600.0) * (df["battery_current_pred"] * 1000)
+    df["mAh_step_real"] = (df["dt_sec"] / 3600.0) * (df["battery_current"] * 1000.0)
+    df["mAh_step_pred"] = (df["dt_sec"] / 3600.0) * (df["battery_current_pred"] * 1000.0)
 
     df["cum_mAh_real"] = df.groupby("flight")["mAh_step_real"].cumsum()
     df["cum_mAh_pred"] = df.groupby("flight")["mAh_step_pred"].cumsum()
 
-    flight_errors = []
-    for f_id, group in df.groupby("flight"):
-        real_total = group["cum_mAh_real"].iloc[-1]
-        pred_total = group["cum_mAh_pred"].iloc[-1]
-        
-        abs_err = abs(real_total - pred_total)
-        relative_err = (abs_err / max(real_total, 1.0)) * 100
-        drift = np.mean(np.abs(group["cum_mAh_real"] - group["cum_mAh_pred"]))
-        
-        flight_errors.append({
-            "flight": f_id,
-            "abs_err": abs_err,
-            "relative_err": relative_err,
-            "drift": drift
-        })
+    rel_errs = []
+    abs_errs = []
+    drifts = []
 
-    error_df = pd.DataFrame(flight_errors)
+    for _f, g in df.groupby("flight", sort=False):
+        real_total = float(g["cum_mAh_real"].iloc[-1])
+        pred_total = float(g["cum_mAh_pred"].iloc[-1])
+
+        abs_err = abs(real_total - pred_total)
+        den = max(abs(real_total), 1.0)
+        rel_err = (abs_err / den) * 100.0
+
+        drift = float(np.mean(np.abs(g["cum_mAh_real"] - g["cum_mAh_pred"])))
+
+        abs_errs.append(abs_err)
+        rel_errs.append(rel_err)
+        drifts.append(drift)
 
     return {
-        "avg_final_err_relative": error_df["relative_err"].mean(),
-        "max_final_err_mah": error_df["abs_err"].max(),
-        "avg_trajectory_drift": error_df["drift"].mean()
+        "avg_final_err_relative": float(np.nanmean(rel_errs)) if len(rel_errs) else np.nan,
+        "max_final_err_mah": float(np.nanmax(abs_errs)) if len(abs_errs) else np.nan,
+        "avg_trajectory_drift": float(np.nanmean(drifts)) if len(drifts) else np.nan,
     }
 
 def print_metrics(model_name, curr_metrics, soc_metrics):

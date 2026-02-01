@@ -60,7 +60,7 @@ def fit_scalers(
     passthrough: Optional[List[str]] = None,
 ) -> Scalers:
     passthrough = passthrough or []
-    scaled_features = [f for f in features if f not in passthrough]
+    scaled_features = [f for f in features if f not in passthrough and f != target_col]
 
     x_scaler = StandardScaler()
     y_scaler = StandardScaler()
@@ -99,6 +99,9 @@ def apply_scaling(
             df2[f] = 0.0
 
     df2[[target_col]] = scalers.y_scaler.transform(df2[[target_col]].to_numpy())
+
+    if target_col in features:
+        df2[target_col] = df2[target_col].astype(np.float32)
 
     return df2
 

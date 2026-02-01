@@ -7,6 +7,7 @@ import pandas as pd
 import torch
 
 from src.models.RNN.flight_window import FlightWindowDataset
+from src.models.RNN.gru_model import GRUModel
 from src.models.RNN.lstm_model import LSTMModel
 from src.models.RNN.scale_features import Scalers, apply_scaling, fit_scalers
 from src.utils.metrics import battery_current_metrics, battery_soc_metrics
@@ -95,7 +96,7 @@ def train_gru(
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=0)
     val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=0)
 
-    model = LSTMModel(
+    model = GRUModel(
         input_dim=len(features),
         hidden_size=hidden_size,
         num_layers=num_layers,
@@ -183,8 +184,8 @@ def train_gru(
     # TESTING
     test_eval = predict_on_df(model, test_df, features, scalers, seq_len=seq_len, device=device, target_col=target_col)
 
-    current_metrics = battery_current_metrics(test_eval["battery_current"], test_eval["battery_current_pred"])
-    soc_metrics = battery_soc_metrics(test_eval, test_eval["battery_current_pred"])
+    current_metrics = battery_current_metrics(test_eval)
+    soc_metrics = battery_soc_metrics(test_eval)
 
     return model, scalers, current_metrics, soc_metrics
 

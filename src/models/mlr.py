@@ -15,8 +15,9 @@ def train_mlr(train_df, test_df, features):
     model.fit(X_train, y_train)
 
     preds = model.predict(X_test)
-    current_metrics = battery_current_metrics(y_test, preds)
-    soc_metrics = battery_soc_metrics(test_df, preds)
+    test_df["battery_current_pred"] = preds
+    current_metrics = battery_current_metrics(test_df)
+    soc_metrics = battery_soc_metrics(test_df)
     
     return model, current_metrics, soc_metrics
 

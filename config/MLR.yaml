@@ -8,7 +8,8 @@ features:
   - battery_voltage
   - is_flying
 
-train_split: 0.8
+train_split: 0.7
+validation_split: 0.15
 
 model:
   name: mlr

@@ -23,5 +23,3 @@ model:
   hidden_size: 64
   num_layers: 2
   dropout: 0.1
-#   ar_steps: 1
-#   exogenous_mode: true

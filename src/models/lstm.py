@@ -183,8 +183,8 @@ def train_lstm(
     # TESTING
     test_eval = predict_on_df(model, test_df, features, scalers, seq_len=seq_len, device=device, target_col=target_col)
 
-    current_metrics = battery_current_metrics(test_eval["battery_current"], test_eval["battery_current_pred"])
-    soc_metrics = battery_soc_metrics(test_eval, test_eval["battery_current_pred"])
+    current_metrics = battery_current_metrics(test_eval)
+    soc_metrics = battery_soc_metrics(test_eval)
 
     return model, scalers, current_metrics, soc_metrics
 
