@@ -1,0 +1,18 @@
+features:
+  - battery_current
+
+train_split: 0.7
+validation_split: 0.15
+
+training:
+  batch_size: 256
+  lr: 0.001
+  epochs: 40
+  patience: 6
+
+model:
+  name: lstm_ar_only
+  seq_len: 100
+  hidden_size: 64
+  num_layers: 2
+  dropout: 0.1
